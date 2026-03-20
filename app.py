@@ -15,63 +15,57 @@ TOKEN = st.secrets["TELEGRAM_TOKEN"]
 bot = telebot.TeleBot(TOKEN)
 user_data = {}
 
-# Crear carpetas de trabajo
+# Carpetas de trabajo
 for folder in ['VIDEO', 'US', 'TEMP']:
     os.makedirs(folder, exist_ok=True)
 
-# --- FUNCIÓN PARA CREAR IMAGEN DE TEXTO (Incrustado) ---
-def crear_imagen_texto(texto, ancho_video, color="white"):
-    # Creamos una imagen transparente del ancho del video
+# --- FUNCIÓN PARA CREAR IMAGEN DE TEXTO ---
+def crear_imagen_texto(texto, ancho_video):
     img = PIL.Image.new('RGBA', (ancho_video, 250), (255, 255, 255, 0))
     draw = PIL.ImageDraw.Draw(img)
-    
-    # Intentar usar una fuente legible, si no, usa la básica
     try:
-        # Si tienes un archivo .ttf en tu repo, cambia 'Arial.ttf' por el nombre del archivo
         font = PIL.ImageFont.load_default() 
     except:
         font = None
-        
-    # Dibujar el texto centrado
-    draw.text((ancho_video // 2, 125), texto, fill=color, anchor="mm")
-    
+    draw.text((ancho_video // 2, 125), texto, fill="white", anchor="mm")
     temp_path = f"TEMP/txt_{random.randint(1000,9999)}.png"
     img.save(temp_path)
     return temp_path
 
-# --- MOTOR DE EDICIÓN ---
+# --- MOTOR DE EDICIÓN CORREGIDO ---
 def procesar_video(input_p, output_p, mode, texto=None, pos=None):
     with VideoFileClip(input_p) as clip:
-        # Efecto Espejo + Rotación (Triturado base)
+        # 1. Efecto Base
         clip_final = clip.fx(vfx.mirror_x).rotate(random.choice([-2.5, 2.5]))
         
-        # Mapeo de posiciones (AHORA ARRIBA PARA EVITAR EL ERROR)
-        pos_map = {
-            "arriba": 100, 
-            "medio": "center", 
-            "abajo": clip.h - 300
-        }
-        
+        # 2. Lógica TikTok
         if mode == "tk":
             fondo = ColorClip(size=(1080, 1920), color=(0, 102, 204)).set_duration(clip.duration)
             clip_res = clip_final.resize(width=1080).set_position('center')
             clip_final = CompositeVideoClip([fondo, clip_res])
         
+        # 3. Lógica de Títulos (CORREGIDA)
         if mode == "tit" and texto:
             img_path = crear_imagen_texto(texto, clip.w)
-            y_pos = pos_map.get(pos, "center")
             
+            # Definimos la posición directamente aquí para evitar errores de variable local
+            if pos == "arriba":
+                y_final = 100
+            elif pos == "abajo":
+                y_final = clip.h - 300
+            else:
+                y_final = "center"
+
             txt_overlay = (ImageClip(img_path)
                            .set_duration(clip.duration)
-                           .set_position(("center", y_pos)))
+                           .set_position(("center", y_final)))
             
             clip_final = CompositeVideoClip([clip_final, txt_overlay])
 
-        # Ajustes de baja memoria para Streamlit
+        # Renderizado (threads=1 para no saturar Streamlit)
         clip_final.write_videofile(output_p, codec="libx264", audio_codec="aac", threads=1, preset="ultrafast", logger=None)
 
 # --- MANEJADORES TELEGRAM ---
-
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     bot.send_message(message.chat.id, "manda un video para comenzar")
@@ -79,7 +73,6 @@ def send_welcome(message):
 @bot.message_handler(content_types=['video'])
 def handle_video(message):
     user_data[message.chat.id] = {'file_id': message.video.file_id, 'step': 'inicio'}
-    
     markup = types.InlineKeyboardMarkup(row_width=1)
     markup.add(
         types.InlineKeyboardButton("🚀 Triturar Normal", callback_data="n"),
@@ -92,7 +85,6 @@ def handle_video(message):
 def callback_query(call):
     chat_id = call.message.chat.id
     bot.answer_callback_query(call.id)
-
     if call.data == "p":
         user_data[chat_id]['step'] = 'wait'
         bot.send_message(chat_id, "✍️ Escribe el título que quieres poner:")
@@ -106,7 +98,7 @@ def recibir_texto(message):
     ejecutar(message.chat.id, "tit_3", texto=message.text)
 
 def ejecutar(chat_id, modo, texto=None):
-    status = bot.send_message(chat_id, "⏳ Procesando... esto tardará unos segundos.")
+    status = bot.send_message(chat_id, "⏳ Procesando... espera un poco.")
     try:
         file_info = bot.get_file(user_data[chat_id]['file_id'])
         downloaded = bot.download_file(file_info.file_path)
@@ -133,6 +125,5 @@ def ejecutar(chat_id, modo, texto=None):
     finally:
         bot.delete_message(chat_id, status.message_id)
 
-# --- STREAMLIT ---
-st.title("🤖 OFM Processor v3.4")
+st.title("🤖 OFM Processor v3.5")
 bot.infinity_polling()
