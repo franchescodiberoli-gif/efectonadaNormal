@@ -25,7 +25,7 @@ def crear_imagen_texto(texto, ancho_video, alto_video):
     """
 
     # --- Fuente ---
-    font_size = max(60, int(alto_video * 0.14))
+    font_size = max(60, int(alto_video * 13))
 
     FONT_PATHS = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
