@@ -3,8 +3,9 @@ import PIL.Image
 import numpy as np
 import streamlit as st
 from telebot import types
-from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip, ColorClip, vfx
+from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip, ColorClip, concatenate_videoclips, vfx
 from moviepy.audio.fx.all import volumex
+from skimage.filters import gaussian
 
 TOKEN = st.secrets["TELEGRAM_TOKEN"]
 bot = telebot.TeleBot(TOKEN)
@@ -24,9 +25,9 @@ FFMPEG_PARAMS = [
 
 def get_params():
     return {
-        "speed":      random.uniform(1.01, 1.03),
-        "fps":        random.uniform(29.97, 30.03),
-        "volume":     random.uniform(0.97, 1.03),
+        "speed":  random.uniform(1.01, 1.03),
+        "fps":    random.uniform(29.97, 30.03),
+        "volume": random.uniform(0.97, 1.03),
     }
 
 def get_params_cine():
@@ -34,10 +35,34 @@ def get_params_cine():
         "speed":      random.uniform(1.01, 1.03),
         "fps":        random.uniform(29.97, 30.03),
         "volume":     random.uniform(0.97, 1.03),
-        "brightness": random.uniform(0.88, 1.12),  # brillo ±12%
-        "zoom":       random.uniform(1.04, 1.08),  # zoom 4-8%
-        "crop_pct":   random.uniform(0.07, 0.10),  # recorte 7-10%
+        "brightness": random.uniform(0.88, 1.12),
+        "zoom":       random.uniform(1.04, 1.08),
+        "crop_pct":   random.uniform(0.07, 0.10),
     }
+
+# ─────────────────────────────────────────────────────
+#  PREGUNTAS RECONFIGURAR
+# ─────────────────────────────────────────────────────
+PREGUNTAS = [
+    ("rel",        "1️⃣ Cantidad de efectos aleatorios de color\n(número entre 0 y 10):"),
+    ("vidc",       "2️⃣ Cantidad de videos únicos a crear\n(número entre 1 y 10):"),
+    ("mind",       "3️⃣ Duración mínima en segundos\n(escribe 0 para desde el inicio):"),
+    ("maxd",       "4️⃣ Duración máxima en segundos\n(escribe 9999 para duración completa):"),
+    ("doMirror",   "5️⃣ ¿Espejo (Mirror)?\n1 = SÍ | 0 = NO"),
+    ("showEffect", "6️⃣ ¿Efecto fade in al inicio?\n1 = SÍ | 0 = NO"),
+    ("doRotate",   "7️⃣ ¿Rotación aleatoria?\n1 = SÍ | 0 = NO"),
+    ("doblur",     "8️⃣ ¿Desenfoque (blur) en todo el video?\n1 = SÍ | 0 = NO"),
+    ("doBlurIn",   "9️⃣ ¿Desenfoque solo al inicio?\n1 = SÍ | 0 = NO"),
+]
+
+COLOR_FILTERS = [
+    "colorbalance=rs=.3", "colorbalance=gs=-0.20", "colorbalance=gs=0.20",
+    "colorbalance=bs=-0.30", "colorbalance=bs=0.30", "colorbalance=rm=0.30",
+    "colorbalance=rm=-0.30", "colorbalance=gm=-0.25", "colorbalance=bm=-0.25",
+    "colorbalance=rh=-0.15", "colorbalance=gh=-0.20", "colorbalance=bh=-0.20"
+]
+NOISES   = [10, 12, 14, 15]
+ANGLES   = [-3, 3]
 
 
 # ─────────────────────────────────────────────────────
@@ -64,27 +89,24 @@ def procesar_video(in_path, out_path):
     tmp_png = f"TEMP/ov_{random.randint(10000,99999)}.png"
     img.save(tmp_png)
 
-    overlay = ImageClip(tmp_png).set_duration(clip.duration).set_position((0, 0))
-    final   = CompositeVideoClip([clip, overlay], size=(W, H))
+    overlay   = ImageClip(tmp_png).set_duration(clip.duration).set_position((0, 0))
+    final     = CompositeVideoClip([clip, overlay], size=(W, H))
     tmp_audio = f"TEMP/audio_{random.randint(1000,9999)}.m4a"
     final.write_videofile(out_path, codec="libx264", audio_codec="aac",
                           fps=p["fps"], threads=2, preset="ultrafast",
                           logger=None, temp_audiofile=tmp_audio,
                           ffmpeg_params=FFMPEG_PARAMS)
-    clip.close()
-    final.close()
+    clip.close(); final.close()
     if os.path.exists(tmp_png):   os.remove(tmp_png)
     if os.path.exists(tmp_audio): os.remove(tmp_audio)
 
 
 # ─────────────────────────────────────────────────────
-#  CLIPER (2 videos apilados)
+#  CLIPER
 # ─────────────────────────────────────────────────────
 def procesar_cliper(path1, path2, out_path):
-    p       = get_params()
-    W_final = 1080
-    H_final = 1920
-    H_half  = H_final // 2
+    p = get_params()
+    W_final, H_final, H_half = 1080, 1920, 960
 
     def recortar_centro(path):
         clip = VideoFileClip(path)
@@ -93,8 +115,7 @@ def procesar_cliper(path1, path2, out_path):
             clip = clip.resize(width=W_final)
             W, H = clip.w, clip.h
         y1 = max(0, (H - H_half) // 2)
-        clip = clip.crop(x1=0, y1=y1, x2=W_final, y2=y1 + H_half)
-        return clip
+        return clip.crop(x1=0, y1=y1, x2=W_final, y2=y1 + H_half)
 
     clip1 = recortar_centro(path1)
     clip2 = recortar_centro(path2)
@@ -103,86 +124,116 @@ def procesar_cliper(path1, path2, out_path):
     clip2 = clip2.subclip(0, dur)
     if clip1.audio:
         clip1 = clip1.set_audio(clip1.audio.fx(volumex, p["volume"]))
-
     clip1 = clip1.set_position((0, 0))
     clip2 = clip2.set_position((0, H_half))
     final = CompositeVideoClip([clip1, clip2], size=(W_final, H_final))
-
     tmp_audio = f"TEMP/audio_{random.randint(1000,9999)}.m4a"
     final.write_videofile(out_path, codec="libx264", audio_codec="aac",
                           fps=p["fps"], threads=2, preset="ultrafast",
                           logger=None, temp_audiofile=tmp_audio,
                           ffmpeg_params=FFMPEG_PARAMS)
-    clip1.close()
-    clip2.close()
-    final.close()
+    clip1.close(); clip2.close(); final.close()
     if os.path.exists(tmp_audio): os.remove(tmp_audio)
 
 
 # ─────────────────────────────────────────────────────
-#  CINE (efecto letterbox + anti-detección agresivo)
+#  CINE
 # ─────────────────────────────────────────────────────
 def procesar_cine(in_path, out_path):
-    p       = get_params_cine()
-    W_final = 1080
-    H_final = 1920
-    # Barras negras arriba y abajo (20% cada una)
-    bar_h   = int(H_final * 0.20)   # 384px negro arriba y abajo
-    H_video = H_final - bar_h * 2   # 1152px para el video
+    p = get_params_cine()
+    W_final, H_final = 1080, 1920
+    bar_h   = int(H_final * 0.20)
+    H_video = H_final - bar_h * 2
 
     clip = VideoFileClip(in_path)
     W, H = clip.w, clip.h
-
-    # ── Anti-detección agresivo ──────────────────────
-
-    # 1. Mirror
     clip = clip.fx(vfx.mirror_x)
 
-    # 2. Zoom al centro (4-8%) — desplaza todos los píxeles
-    zoom = p["zoom"]
-    new_w = int(W * zoom)
-    new_h = int(H * zoom)
+    zoom  = p["zoom"]
+    new_w, new_h = int(W * zoom), int(H * zoom)
     clip  = clip.resize((new_w, new_h))
     cx, cy = new_w // 2, new_h // 2
-    clip  = clip.crop(x1=cx - W//2, y1=cy - H//2,
-                      x2=cx + W//2, y2=cy + H//2)
+    clip  = clip.crop(x1=cx - W//2, y1=cy - H//2, x2=cx + W//2, y2=cy + H//2)
 
-    # 3. Recorte agresivo de bordes (7-10%)
-    crop_x = int(W * p["crop_pct"])
-    crop_y = int(H * p["crop_pct"])
-    clip   = clip.crop(x1=crop_x, y1=crop_y,
-                       x2=W - crop_x, y2=H - crop_y)
-
-    # 4. Escalar al tamaño del área de video (1080 x H_video)
+    cp = p["crop_pct"]
+    clip = clip.crop(x1=int(W*cp), y1=int(H*cp), x2=int(W*(1-cp)), y2=int(H*(1-cp)))
     clip = clip.resize((W_final, H_video))
-
-    # 5. Brillo aleatorio
     clip = clip.fl_image(lambda f: np.clip(f * p["brightness"], 0, 255).astype("uint8"))
-
-    # 6. Velocidad
     clip = clip.fx(vfx.speedx, p["speed"])
-
-    # 7. Volumen
     if clip.audio:
         clip = clip.set_audio(clip.audio.fx(volumex, p["volume"]))
 
-    # ── Barras negras ────────────────────────────────
-    barra_top = ColorClip(size=(W_final, bar_h), color=[0, 0, 0]).set_duration(clip.duration)
-    barra_bot = ColorClip(size=(W_final, bar_h), color=[0, 0, 0]).set_duration(clip.duration)
-
+    barra_top = ColorClip(size=(W_final, bar_h), color=[0,0,0]).set_duration(clip.duration)
+    barra_bot = ColorClip(size=(W_final, bar_h), color=[0,0,0]).set_duration(clip.duration)
     barra_top = barra_top.set_position((0, 0))
     clip      = clip.set_position((0, bar_h))
     barra_bot = barra_bot.set_position((0, bar_h + H_video))
 
     final = CompositeVideoClip([barra_top, clip, barra_bot], size=(W_final, H_final))
-
     tmp_audio = f"TEMP/audio_{random.randint(1000,9999)}.m4a"
     final.write_videofile(out_path, codec="libx264", audio_codec="aac",
                           fps=p["fps"], threads=2, preset="ultrafast",
                           logger=None, temp_audiofile=tmp_audio,
                           ffmpeg_params=FFMPEG_PARAMS)
+    clip.close(); final.close()
+    if os.path.exists(tmp_audio): os.remove(tmp_audio)
+
+
+# ─────────────────────────────────────────────────────
+#  RECONFIGURAR
+# ─────────────────────────────────────────────────────
+def apply_blur(image):
+    return gaussian(image.astype(float), sigma=5)
+
+def procesar_reconfigurar(in_path, out_path, cfg):
+    clip = VideoFileClip(in_path)
+
+    # Duración
+    rmaxd = min(cfg["maxd"], clip.duration)
+    if cfg["mind"] < rmaxd:
+        clip = clip.subclip(cfg["mind"], rmaxd)
+
+    # Fade in
+    if cfg["showEffect"]:
+        clip = clip.fx(vfx.fadein, duration=2)
+
+    # Mirror
+    if cfg["doMirror"]:
+        clip = clip.fx(vfx.mirror_x)
+
+    # Blur todo
+    if cfg["doblur"]:
+        clip = clip.fl_image(apply_blur)
+
+    # Blur al inicio
+    if cfg["doBlurIn"] and clip.duration > 1:
+        smclip = clip.subclip(0, 1).fl_image(apply_blur)
+        ogclip = clip.subclip(1, clip.duration)
+        clip   = concatenate_videoclips([smclip, ogclip])
+
+    # Efectos de color aleatorios
+    if cfg["rel"] > 0:
+        filters = [random.choice(COLOR_FILTERS) for _ in range(cfg["rel"])]
+        addargs = ["-filter_complex", ",".join(filters)]
+    else:
+        addargs = []
+
+    # Ruido visual
+    noise_val  = random.choice(NOISES)
+    noise_args = ["-vf", f"noise=c0s={noise_val}:c0f=t+u", "-c:a", "aac"]
+
+    tmp_audio = f"TEMP/audio_{random.randint(1000,9999)}.m4a"
+    clip.write_videofile(
+        out_path,
+        codec="libx264",
+        audio_codec="aac",
+        threads=2,
+        preset="ultrafast",
+        logger=None,
+        temp_audiofile=tmp_audio,
+        ffmpeg_params=["-fflags", "+bitexact", "-map_metadata", "-1"] + addargs + noise_args
+    )
     clip.close()
-    final.close()
     if os.path.exists(tmp_audio): os.remove(tmp_audio)
 
 
@@ -204,6 +255,7 @@ def recibir_video(m):
     file_id = m.video.file_id if m.content_type == "video" else m.document.file_id
     estado  = user_data.get(cid, {})
 
+    # Esperando video 2 para cliper
     if estado.get("step") == "cliper_video2":
         user_data[cid]["video2_id"] = file_id
         user_data[cid]["step"]      = None
@@ -213,14 +265,49 @@ def recibir_video(m):
 
     user_data[cid] = {"video_id": file_id, "procesando": False}
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("🎄 Plantilla Navidad", callback_data="overlay_navidad"))
-    markup.add(types.InlineKeyboardButton("✂️ Cliper",            callback_data="cliper"))
-    markup.add(types.InlineKeyboardButton("🎬 Cine",              callback_data="cine"))
+    markup.add(types.InlineKeyboardButton("🎄 Plantilla Navidad",  callback_data="overlay_navidad"))
+    markup.add(types.InlineKeyboardButton("✂️ Cliper",             callback_data="cliper"))
+    markup.add(types.InlineKeyboardButton("🎬 Cine",               callback_data="cine"))
+    markup.add(types.InlineKeyboardButton("⚙️ Reconfigurar",       callback_data="reconfigurar"))
     bot.send_message(cid, "✅ *¡Video recibido!* ¿Qué quieres hacer?",
                      parse_mode="Markdown", reply_markup=markup)
 
 
-# ── Hilos ──
+# ── Respuestas de texto (Reconfigurar) ──
+@bot.message_handler(func=lambda m: user_data.get(m.chat.id, {}).get("step") == "reconfigurar_pregunta")
+def respuesta_reconfigurar(m):
+    cid = m.chat.id
+    try:
+        val = int(m.text.strip())
+    except ValueError:
+        bot.send_message(cid, "⚠️ Por favor escribe solo un número.")
+        return
+
+    cfg  = user_data[cid].setdefault("reconfig", {})
+    idx  = user_data[cid].get("pregunta_idx", 0)
+    key, _ = PREGUNTAS[idx]
+    cfg[key] = bool(val) if key in ("doMirror","showEffect","doRotate","doblur","doBlurIn") else val
+
+    idx += 1
+    user_data[cid]["pregunta_idx"] = idx
+
+    if idx < len(PREGUNTAS):
+        _, texto = PREGUNTAS[idx]
+        bot.send_message(cid, texto)
+    else:
+        # Todas las preguntas respondidas → procesar
+        user_data[cid]["step"] = None
+        cfg = user_data[cid]["reconfig"]
+        vidc = cfg.get("vidc", 1)
+        bot.send_message(cid, f"✅ Configuración guardada. Voy a crear *{vidc}* video(s)...",
+                         parse_mode="Markdown")
+        status = bot.send_message(cid, "⏳ Procesando...")
+        threading.Thread(target=_hilo_reconfigurar, args=(cid, status.message_id), daemon=True).start()
+
+
+# ─────────────────────────────────────────────────────
+#  HILOS
+# ─────────────────────────────────────────────────────
 
 def _hilo_navidad(cid, status_id):
     in_p  = f"VIDEO/in_{cid}.mp4"
@@ -243,9 +330,8 @@ def _hilo_navidad(cid, status_id):
 
 
 def _hilo_cliper(cid, status_id):
-    in1   = f"VIDEO/c1_{cid}.mp4"
-    in2   = f"VIDEO/c2_{cid}.mp4"
-    out_p = f"US/cliper_{cid}.mp4"
+    in1, in2 = f"VIDEO/c1_{cid}.mp4", f"VIDEO/c2_{cid}.mp4"
+    out_p    = f"US/cliper_{cid}.mp4"
     try:
         raw1 = bot.download_file(bot.get_file(user_data[cid]["video_id"]).file_path)
         with open(in1, "wb") as f: f.write(raw1)
@@ -285,11 +371,40 @@ def _hilo_cine(cid, status_id):
         user_data[cid]["procesando"] = False
 
 
+def _hilo_reconfigurar(cid, status_id):
+    cfg   = user_data[cid]["reconfig"]
+    vidc  = cfg.get("vidc", 1)
+    in_p  = f"VIDEO/in_{cid}.mp4"
+    try:
+        raw = bot.download_file(bot.get_file(user_data[cid]["video_id"]).file_path)
+        with open(in_p, "wb") as f: f.write(raw)
+
+        for i in range(vidc):
+            out_p = f"US/reconfig_{cid}_{i}.mp4"
+            procesar_reconfigurar(in_p, out_p, cfg)
+            with open(out_p, "rb") as v:
+                bot.send_video(cid, v, caption=f"⚙️ Video {i+1}/{vidc}", supports_streaming=True)
+            if os.path.exists(out_p): os.remove(out_p)
+
+    except Exception as e:
+        bot.send_message(cid, f"❌ Error: {str(e)}")
+    finally:
+        if os.path.exists(in_p): os.remove(in_p)
+        try: bot.delete_message(cid, status_id)
+        except: pass
+        _menu_final(cid)
+        user_data[cid]["procesando"] = False
+
+
 def _menu_final(cid):
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("📤 Subir nuevo video", callback_data="nuevo_video"))
     bot.send_message(cid, "✅ ¿Quieres procesar otro video?", reply_markup=markup)
 
+
+# ─────────────────────────────────────────────────────
+#  CALLBACKS
+# ─────────────────────────────────────────────────────
 
 @bot.callback_query_handler(func=lambda c: c.data == "overlay_navidad")
 def cb_overlay(c):
@@ -298,7 +413,7 @@ def cb_overlay(c):
     if "video_id" not in user_data.get(cid, {}):
         bot.send_message(cid, "❌ Primero sube un video."); return
     if user_data[cid].get("procesando"):
-        bot.send_message(cid, "⏳ Ya hay un video procesándose, espera."); return
+        bot.send_message(cid, "⏳ Ya hay un video procesándose."); return
     user_data[cid]["procesando"] = True
     status = bot.send_message(cid, "⏳ Procesando plantilla navideña...")
     threading.Thread(target=_hilo_navidad, args=(cid, status.message_id), daemon=True).start()
@@ -311,9 +426,8 @@ def cb_cliper(c):
     if "video_id" not in user_data.get(cid, {}):
         bot.send_message(cid, "❌ Primero sube un video."); return
     user_data[cid]["step"] = "cliper_video2"
-    bot.send_message(cid,
-        "✅ Video 1 guardado.\n\n📤 Ahora sube el *segundo video* (irá abajo):",
-        parse_mode="Markdown")
+    bot.send_message(cid, "✅ Video 1 guardado.\n\n📤 Ahora sube el *segundo video*:",
+                     parse_mode="Markdown")
 
 
 @bot.callback_query_handler(func=lambda c: c.data == "cine")
@@ -323,10 +437,29 @@ def cb_cine(c):
     if "video_id" not in user_data.get(cid, {}):
         bot.send_message(cid, "❌ Primero sube un video."); return
     if user_data[cid].get("procesando"):
-        bot.send_message(cid, "⏳ Ya hay un video procesándose, espera."); return
+        bot.send_message(cid, "⏳ Ya hay un video procesándose."); return
     user_data[cid]["procesando"] = True
     status = bot.send_message(cid, "⏳ Procesando efecto cine...")
     threading.Thread(target=_hilo_cine, args=(cid, status.message_id), daemon=True).start()
+
+
+@bot.callback_query_handler(func=lambda c: c.data == "reconfigurar")
+def cb_reconfigurar(c):
+    cid = c.message.chat.id
+    bot.answer_callback_query(c.id)
+    if "video_id" not in user_data.get(cid, {}):
+        bot.send_message(cid, "❌ Primero sube un video."); return
+    if user_data[cid].get("procesando"):
+        bot.send_message(cid, "⏳ Ya hay un video procesándose."); return
+
+    user_data[cid]["step"]         = "reconfigurar_pregunta"
+    user_data[cid]["pregunta_idx"] = 0
+    user_data[cid]["reconfig"]     = {}
+
+    _, texto = PREGUNTAS[0]
+    bot.send_message(cid,
+        "⚙️ *Vamos a configurar el procesamiento.*\n\nResponde cada pregunta con un número:\n\n" + texto,
+        parse_mode="Markdown")
 
 
 @bot.callback_query_handler(func=lambda c: c.data == "nuevo_video")
