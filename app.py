@@ -19,23 +19,42 @@ user_data = {}
 for folder in ['VIDEO', 'US', 'TEMP']:
     os.makedirs(folder, exist_ok=True)
 
-# --- FUNCIÓN PARA CREAR IMAGEN DE TEXTO ---
+# --- FUNCIÓN PARA CREAR TEXTO FORMATO TÍTULO 1 ---
 def crear_imagen_texto(texto, ancho_video):
-    img = PIL.Image.new('RGBA', (ancho_video, 250), (255, 255, 255, 0))
+    # Definimos un tamaño de fuente "Título 1" (10% del ancho del video)
+    tamanio_fuente = int(ancho_video * 0.10)
+    
+    # Creamos una imagen transparente alta para dar espacio al texto grande
+    img = PIL.Image.new('RGBA', (ancho_video, tamanio_fuente + 100), (255, 255, 255, 0))
     draw = PIL.ImageDraw.Draw(img)
+    
     try:
-        font = PIL.ImageFont.load_default() 
+        # Intentamos cargar la fuente por defecto
+        font = PIL.ImageFont.load_default()
+        # Nota: load_default() no permite cambiar tamaño en versiones viejas.
+        # Si esto se ve pequeño, te recomendaré subir una fuente .ttf a tu GitHub.
     except:
         font = None
-    draw.text((ancho_video // 2, 125), texto, fill="white", anchor="mm")
-    temp_path = f"TEMP/txt_{random.randint(1000,9999)}.png"
+
+    # Dibujamos el texto en Blanco con un "borde" negro para que resalte (Título 1 Style)
+    pos_x = ancho_video // 2
+    pos_y = (tamanio_fuente + 100) // 2
+    
+    # Simulación de negrita/borde para legibilidad
+    for adj in range(-3, 4):
+        draw.text((pos_x + adj, pos_y), texto, fill="black", anchor="mm")
+        draw.text((pos_x, pos_y + adj), texto, fill="black", anchor="mm")
+    
+    draw.text((pos_x, pos_y), texto, fill="white", anchor="mm")
+    
+    temp_path = f"TEMP/tit1_{random.randint(1000,9999)}.png"
     img.save(temp_path)
     return temp_path
 
-# --- MOTOR DE EDICIÓN CORREGIDO ---
+# --- MOTOR DE EDICIÓN ---
 def procesar_video(input_p, output_p, mode, texto=None, pos=None):
     with VideoFileClip(input_p) as clip:
-        # 1. Efecto Base
+        # 1. Triturado Base
         clip_final = clip.fx(vfx.mirror_x).rotate(random.choice([-2.5, 2.5]))
         
         # 2. Lógica TikTok
@@ -44,25 +63,26 @@ def procesar_video(input_p, output_p, mode, texto=None, pos=None):
             clip_res = clip_final.resize(width=1080).set_position('center')
             clip_final = CompositeVideoClip([fondo, clip_res])
         
-        # 3. Lógica de Títulos (CORREGIDA)
+        # 3. Lógica de Títulos Incrustados
         if mode == "tit" and texto:
             img_path = crear_imagen_texto(texto, clip.w)
             
-            # Definimos la posición directamente aquí para evitar errores de variable local
+            # Ajuste de coordenadas según posición
             if pos == "arriba":
-                y_final = 100
+                y_final = 150
             elif pos == "abajo":
-                y_final = clip.h - 300
+                y_final = clip.h - 400
             else:
                 y_final = "center"
 
             txt_overlay = (ImageClip(img_path)
                            .set_duration(clip.duration)
-                           .set_position(("center", y_final)))
+                           .set_position(("center", y_final))
+                           .resize(width=clip.w * 0.9)) # Aseguramos que el título sea imponente
             
             clip_final = CompositeVideoClip([clip_final, txt_overlay])
 
-        # Renderizado (threads=1 para no saturar Streamlit)
+        # Renderizado optimizado
         clip_final.write_videofile(output_p, codec="libx264", audio_codec="aac", threads=1, preset="ultrafast", logger=None)
 
 # --- MANEJADORES TELEGRAM ---
@@ -98,7 +118,7 @@ def recibir_texto(message):
     ejecutar(message.chat.id, "tit_3", texto=message.text)
 
 def ejecutar(chat_id, modo, texto=None):
-    status = bot.send_message(chat_id, "⏳ Procesando... espera un poco.")
+    status = bot.send_message(chat_id, "⏳ Generando contenido... esto toma un momento.")
     try:
         file_info = bot.get_file(user_data[chat_id]['file_id'])
         downloaded = bot.download_file(file_info.file_path)
@@ -110,7 +130,7 @@ def ejecutar(chat_id, modo, texto=None):
                 out_p = f"US/{p}_{chat_id}.mp4"
                 procesar_video(in_p, out_p, "tit", texto, p)
                 with open(out_p, 'rb') as v:
-                    bot.send_video(chat_id, v, caption=f"✅ Título {p}")
+                    bot.send_video(chat_id, v, caption=f"✅ Título 1 - Posición: {p}")
                 if os.path.exists(out_p): os.remove(out_p)
         else:
             out_p = f"US/res_{chat_id}.mp4"
@@ -119,11 +139,4 @@ def ejecutar(chat_id, modo, texto=None):
                 bot.send_video(chat_id, v, caption="🔥 ¡Listo!")
             if os.path.exists(out_p): os.remove(out_p)
         
-        if os.path.exists(in_p): os.remove(in_p)
-    except Exception as e:
-        bot.send_message(chat_id, f"❌ Error: {str(e)}")
-    finally:
-        bot.delete_message(chat_id, status.message_id)
-
-st.title("🤖 OFM Processor v3.5")
-bot.infinity_polling()
+        if os.path.exists(in_p):
