@@ -44,15 +44,15 @@ def get_params_cine():
 #  PREGUNTAS RECONFIGURAR
 # ─────────────────────────────────────────────────────
 PREGUNTAS = [
-    ("rel",        "1️⃣ Cantidad de efectos aleatorios de color\n(número entre 0 y 10):"),
-    ("vidc",       "2️⃣ Cantidad de videos únicos a crear\n(número entre 1 y 10):"),
-    ("mind",       "3️⃣ Duración mínima en segundos\n(escribe 0 para desde el inicio):"),
-    ("maxd",       "4️⃣ Duración máxima en segundos\n(escribe 9999 para duración completa):"),
-    ("doMirror",   "5️⃣ ¿Espejo (Mirror)?\n1 = SÍ | 0 = NO"),
-    ("showEffect", "6️⃣ ¿Efecto fade in al inicio?\n1 = SÍ | 0 = NO"),
-    ("doRotate",   "7️⃣ ¿Rotación aleatoria?\n1 = SÍ | 0 = NO"),
-    ("doblur",     "8️⃣ ¿Desenfoque (blur) en todo el video?\n1 = SÍ | 0 = NO"),
-    ("doBlurIn",   "9️⃣ ¿Desenfoque solo al inicio?\n1 = SÍ | 0 = NO"),
+    ("doBlurIn",   "1️⃣ ¿Desenfoque al inicio?\n1 = SÍ | 0 = NO"),
+    ("doblur",     "2️⃣ ¿Desenfocar todo el video?\n1 = SÍ | 0 = NO"),
+    ("doMirror",   "3️⃣ ¿Voltear el video horizontalmente?\n1 = SÍ | 0 = NO"),
+    ("doRotate",   "4️⃣ ¿Inclinar el video levemente?\n1 = SÍ | 0 = NO"),
+    ("showEffect", "5️⃣ ¿El video aparece suavemente al inicio?\n1 = SÍ | 0 = NO"),
+    ("rel",        "6️⃣ Efectos de color aleatorios\n(0 = ninguno, máximo 10):"),
+    ("vidc",       "7️⃣ ¿Cuántos videos quieres crear? (1-10):"),
+    ("mind",       "8️⃣ ¿Desde qué segundo empieza?\n(0 = desde el inicio):"),
+    ("maxd",       "9️⃣ ¿Hasta qué segundo?\n(9999 = hasta el final):"),
 ]
 
 COLOR_FILTERS = [
@@ -211,16 +211,19 @@ def procesar_reconfigurar(in_path, out_path, cfg):
         ogclip = clip.subclip(1, clip.duration)
         clip   = concatenate_videoclips([smclip, ogclip])
 
+    # Ruido visual via numpy (evita conflicto con filter_complex)
+    noise_val = random.choice(NOISES)
+    def add_noise(frame):
+        noise = np.random.randint(-noise_val, noise_val, frame.shape, dtype=np.int16)
+        return np.clip(frame.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+    clip = clip.fl_image(add_noise)
+
     # Efectos de color aleatorios
     if cfg["rel"] > 0:
         filters = [random.choice(COLOR_FILTERS) for _ in range(cfg["rel"])]
-        addargs = ["-filter_complex", ",".join(filters)]
+        addargs = ["-vf", ",".join(filters)]
     else:
         addargs = []
-
-    # Ruido visual
-    noise_val  = random.choice(NOISES)
-    noise_args = ["-vf", f"noise=c0s={noise_val}:c0f=t+u", "-c:a", "aac"]
 
     tmp_audio = f"TEMP/audio_{random.randint(1000,9999)}.m4a"
     clip.write_videofile(
@@ -231,7 +234,7 @@ def procesar_reconfigurar(in_path, out_path, cfg):
         preset="ultrafast",
         logger=None,
         temp_audiofile=tmp_audio,
-        ffmpeg_params=["-fflags", "+bitexact", "-map_metadata", "-1"] + addargs + noise_args
+        ffmpeg_params=["-map_metadata", "-1"] + addargs
     )
     clip.close()
     if os.path.exists(tmp_audio): os.remove(tmp_audio)
