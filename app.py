@@ -311,7 +311,7 @@ def procesar_reconfigurar(in_path, out_path, cfg):
 
 @bot.message_handler(commands=["start"])
 def cmd_start(m):
-    registrar_actividad()
+    ()
     user_data[m.chat.id] = {}
     bot.send_message(m.chat.id,
         "👋 Hola, soy tu bot de reciclaje de contenido.\n\n📤 Sube tu video para empezar.",
@@ -320,7 +320,7 @@ def cmd_start(m):
 
 @bot.message_handler(content_types=["video", "document"])
 def recibir_video(m):
-    registrar_actividad("accion")
+    ("accion")
     cid     = m.chat.id
     file_id = m.video.file_id if m.content_type == "video" else m.document.file_id
     estado  = user_data.get(cid, {})
@@ -346,7 +346,7 @@ def recibir_video(m):
 # ── Respuestas de texto (Reconfigurar) ──
 @bot.message_handler(func=lambda m: user_data.get(m.chat.id, {}).get("step") == "reconfigurar_pregunta")
 def respuesta_reconfigurar(m):
-    registrar_actividad("accion")
+  ("accion")
     cid = m.chat.id
     try:
         val = int(m.text.strip())
@@ -549,7 +549,6 @@ def cb_reconfigurar(c):
     bot.send_message(cid,
         "⚙️ *Vamos a configurar el procesamiento.*\n\nResponde cada pregunta con un número:\n\n" + texto,
         parse_mode="Markdown")
-
 
 @bot.callback_query_handler(func=lambda c: c.data == "nuevo_video")
 def cb_nuevo(c):
