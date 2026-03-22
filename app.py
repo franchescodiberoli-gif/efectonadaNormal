@@ -10,6 +10,16 @@ from skimage.filters import gaussian
 TOKEN = st.secrets["TELEGRAM_TOKEN"]
 bot = telebot.TeleBot(TOKEN)
 user_data = {}
+import time as _time
+import threading
+
+OWNER_ID = 6967043635  # Tu ID
+ultimo_contacto = _time.time()
+bot_ocupado = False
+
+def registrar_actividad():
+    global ultimo_contacto
+    ultimo_contacto = _time.time()
 
 for folder in ["VIDEO", "US", "TEMP"]:
     os.makedirs(folder, exist_ok=True)
@@ -268,6 +278,7 @@ def procesar_reconfigurar(in_path, out_path, cfg):
 
 @bot.message_handler(commands=["start"])
 def cmd_start(m):
+    registrar_actividad()
     user_data[m.chat.id] = {}
     bot.send_message(m.chat.id,
         "👋 ¡Hola! Soy tu bot de reciclaje de contenido.\n\n📤 *Sube tu video* para empezar.",
@@ -276,6 +287,7 @@ def cmd_start(m):
 
 @bot.message_handler(content_types=["video", "document"])
 def recibir_video(m):
+    registrar_actividad()
     cid     = m.chat.id
     file_id = m.video.file_id if m.content_type == "video" else m.document.file_id
     estado  = user_data.get(cid, {})
@@ -301,6 +313,7 @@ def recibir_video(m):
 # ── Respuestas de texto (Reconfigurar) ──
 @bot.message_handler(func=lambda m: user_data.get(m.chat.id, {}).get("step") == "reconfigurar_pregunta")
 def respuesta_reconfigurar(m):
+    registrar_actividad()
     cid = m.chat.id
     try:
         val = int(m.text.strip())
@@ -335,6 +348,8 @@ def respuesta_reconfigurar(m):
 # ─────────────────────────────────────────────────────
 
 def _hilo_navidad(cid, status_id):
+    global bot_ocupado 
+    bot_ocupado = True
     in_p  = f"VIDEO/in_{cid}.mp4"
     out_p = f"US/navidad_{cid}.mp4"
     try:
@@ -346,6 +361,7 @@ def _hilo_navidad(cid, status_id):
     except Exception as e:
         bot.send_message(cid, f"❌ Error: {str(e)}")
     finally:
+        bot_ocupado = False
         for p in [in_p, out_p]:
             if os.path.exists(p): os.remove(p)
         try: bot.delete_message(cid, status_id)
@@ -355,6 +371,8 @@ def _hilo_navidad(cid, status_id):
 
 
 def _hilo_cliper(cid, status_id):
+    global bot_ocupado 
+    bot_ocupado = True
     in1, in2 = f"VIDEO/c1_{cid}.mp4", f"VIDEO/c2_{cid}.mp4"
     out_p    = f"US/cliper_{cid}.mp4"
     try:
@@ -368,6 +386,7 @@ def _hilo_cliper(cid, status_id):
     except Exception as e:
         bot.send_message(cid, f"❌ Error: {str(e)}")
     finally:
+        bot_ocupado = False
         for p in [in1, in2, out_p]:
             if os.path.exists(p): os.remove(p)
         try: bot.delete_message(cid, status_id)
@@ -377,6 +396,8 @@ def _hilo_cliper(cid, status_id):
 
 
 def _hilo_cine(cid, status_id, tipo):
+    global bot_ocupado
+    bot_ocupado = True
     in_p  = f"VIDEO/in_{cid}.mp4"
     out_p = f"US/cine_{cid}.mp4"
     try:
@@ -388,6 +409,7 @@ def _hilo_cine(cid, status_id, tipo):
     except Exception as e:
         bot.send_message(cid, f"❌ Error: {str(e)}")
     finally:
+        bot_ocupado = False
         for p in [in_p, out_p]:
             if os.path.exists(p): os.remove(p)
         try: bot.delete_message(cid, status_id)
@@ -397,6 +419,8 @@ def _hilo_cine(cid, status_id, tipo):
 
 
 def _hilo_reconfigurar(cid, status_id):
+    global bot_ocupado
+    bot_ocupado = True
     cfg   = user_data[cid]["reconfig"]
     vidc  = cfg.get("vidc", 1)
     in_p  = f"VIDEO/in_{cid}.mp4"
@@ -414,6 +438,7 @@ def _hilo_reconfigurar(cid, status_id):
     except Exception as e:
         bot.send_message(cid, f"❌ Error: {str(e)}")
     finally:
+        bot_ocupado = False
         if os.path.exists(in_p): os.remove(in_p)
         try: bot.delete_message(cid, status_id)
         except: pass
@@ -430,6 +455,16 @@ def _menu_final(cid):
 # ─────────────────────────────────────────────────────
 #  CALLBACKS
 # ─────────────────────────────────────────────────────
+def sistema_permanencia():
+    while True:
+        _time.sleep(60) # Revisa cada minuto
+        pasado = _time.time() - ultimo_contacto
+        if pasado >= 300 and not bot_ocupado:
+            try:
+                bot.send_message(OWNER_ID, "/start")
+                registrar_actividad()
+            except:
+                pass
 
 @bot.callback_query_handler(func=lambda c: c.data == "overlay_navidad")
 def cb_overlay(c):
@@ -515,4 +550,5 @@ def cb_nuevo(c):
 
 st.title("🤖 OFM Pro — Bot activo ✅")
 st.caption("El bot está corriendo.")
+threading.Thread(target=sistema_permanencia, daemon=True).start()
 bot.infinity_polling()
