@@ -547,8 +547,25 @@ def cb_nuevo(c):
     user_data[cid] = {}
     bot.send_message(cid, "📤 Envía tu nuevo video:")
 
+# ─────────────────────────────────────────────────────
+#  EJECUCIÓN FINAL (LIMPIEZA Y ARRANQUE)
+# ─────────────────────────────────────────────────────
 
+# 1. Limpiamos cualquier conexión vieja (SOLO UNA VEZ)
+try:
+    import time
+    bot.remove_webhook()
+    time.sleep(2) 
+except:
+    pass
+
+# 2. Interfaz de Streamlit
 st.title("🤖 OFM Pro — Bot activo ✅")
-st.caption("El bot está corriendo.")
+st.caption("El bot está corriendo y el sistema de permanencia está activo.")
+
+# 3. Arrancamos el vigilante de los 5 minutos
+import threading
 threading.Thread(target=sistema_permanencia, daemon=True).start()
-bot.infinity_polling()
+
+# 4. Encendemos el bot (ESTA DEBE SER LA ÚLTIMA LÍNEA)
+bot.infinity_polling(timeout=60, long_polling_timeout=30)
