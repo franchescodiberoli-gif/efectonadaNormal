@@ -387,9 +387,11 @@ def cb_overlay(c):
     reset_timer(cid)
 
     if "video_id" not in user_data.get(cid, {}):
-        bot.send_message(cid, "❌ Primero sube un video."); return
+        bot.send_message(cid, "❌ Primero sube un video.")
+        return
     if user_data[cid].get("procesando"):
-        bot.send_message(cid, "⏳ Ya hay un video procesándose."); return
+        bot.send_message(cid, "⏳ Ya hay un video procesándose.")
+        return
     
     user_data[cid]["procesando"] = True
     user_data[cid]["busy"] = True # Bloquear auto-restart
@@ -404,7 +406,8 @@ def cb_cliper(c):
     reset_timer(cid)
 
     if "video_id" not in user_data.get(cid, {}):
-        bot.send_message(cid, "❌ Primero sube un video."); return
+        bot.send_message(cid, "❌ Primero sube un video.")
+        return
     
     user_data[cid]["step"] = "cliper_video2"
     bot.send_message(cid, "✅ Video 1 guardado.\n\n📤 Ahora sube el *segundo video*:",
@@ -418,7 +421,8 @@ def cb_cine(c):
     reset_timer(cid)
 
     if "video_id" not in user_data.get(cid, {}):
-        bot.send_message(cid, "❌ Primero sube un video."); return
+        bot.send_message(cid, "❌ Primero sube un video.")
+        return
     
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("⬛ Negro",   callback_data="cine_negro"))
@@ -435,7 +439,8 @@ def cb_cine_tipo(c):
     reset_timer(cid)
 
     if user_data[cid].get("procesando"):
-        bot.send_message(cid, "⏳ Ya hay un video procesándose."); return
+        bot.send_message(cid, "⏳ Ya hay un video procesándose.")
+        return
 
     user_data[cid]["procesando"] = True
     user_data[cid]["busy"] = True # Bloquear auto-restart
@@ -450,7 +455,8 @@ def cb_reconfigurar(c):
     reset_timer(cid)
 
     if "video_id" not in user_data.get(cid, {}):
-        bot.send_message(cid, "❌ Primero sube un video."); return
+        bot.send_message(cid, "❌ Primero sube un video.")
+        return
 
     user_data[cid]["step"] = "reconfigurar_pregunta"
     user_data[cid]["pregunta_idx"] = 0
@@ -469,11 +475,11 @@ def cb_nuevo(c):
     bot.send_message(cid, "📤 Envía tu nuevo video:")
 
 # ==========================================
-# EJECUCIÓN FINAL (CORREGIDA)
+# EJECUCIÓN FINAL
 # ==========================================
 if __name__ == "__main__":
     st.title("🤖 OFM Pro — Bot activo ✅")
     st.caption("El bot está corriendo con Auto-Restart activo.")
     
-    # IMPORTANTE: Eliminado non_stop=True para evitar el error múltiple
+    # timeout alto para evitar desconexiones en Streamlit
     bot.infinity_polling(timeout=60, long_polling_timeout=20)
