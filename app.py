@@ -268,6 +268,7 @@ def procesar_reconfigurar(in_path, out_path, cfg):
 
 @bot.message_handler(commands=["start"])
 def cmd_start(m):
+    registrar_actividad()
     user_data[m.chat.id] = {}
     bot.send_message(m.chat.id,
         "👋 ¡Hola! Soy tu bot de reciclaje de contenido.\n\n📤 *Sube tu video* para empezar.",
@@ -276,6 +277,7 @@ def cmd_start(m):
 
 @bot.message_handler(content_types=["video", "document"])
 def recibir_video(m):
+    registrar_actividad()
     cid     = m.chat.id
     file_id = m.video.file_id if m.content_type == "video" else m.document.file_id
     estado  = user_data.get(cid, {})
@@ -301,6 +303,7 @@ def recibir_video(m):
 # ── Respuestas de texto (Reconfigurar) ──
 @bot.message_handler(func=lambda m: user_data.get(m.chat.id, {}).get("step") == "reconfigurar_pregunta")
 def respuesta_reconfigurar(m):
+    registrar_actividad()
     cid = m.chat.id
     try:
         val = int(m.text.strip())
@@ -433,6 +436,7 @@ def _menu_final(cid):
 
 @bot.callback_query_handler(func=lambda c: c.data == "overlay_navidad")
 def cb_overlay(c):
+    registrar_actividad()
     cid = c.message.chat.id
     bot.answer_callback_query(c.id)
     if "video_id" not in user_data.get(cid, {}):
@@ -446,6 +450,7 @@ def cb_overlay(c):
 
 @bot.callback_query_handler(func=lambda c: c.data == "cliper")
 def cb_cliper(c):
+    registrar_actividad()
     cid = c.message.chat.id
     bot.answer_callback_query(c.id)
     if "video_id" not in user_data.get(cid, {}):
@@ -457,6 +462,7 @@ def cb_cliper(c):
 
 @bot.callback_query_handler(func=lambda c: c.data == "cine")
 def cb_cine(c):
+    registrar_actividad()
     cid = c.message.chat.id
     bot.answer_callback_query(c.id)
     if "video_id" not in user_data.get(cid, {}):
@@ -473,6 +479,7 @@ def cb_cine(c):
 
 @bot.callback_query_handler(func=lambda c: c.data in ("cine_negro", "cine_azul", "cine_borroso"))
 def cb_cine_tipo(c):
+    registrar_actividad()
     cid  = c.message.chat.id
     tipo = c.data.replace("cine_", "")
     bot.answer_callback_query(c.id)
@@ -488,6 +495,7 @@ def cb_cine_tipo(c):
 
 @bot.callback_query_handler(func=lambda c: c.data == "reconfigurar")
 def cb_reconfigurar(c):
+    registrar_actividad()
     cid = c.message.chat.id
     bot.answer_callback_query(c.id)
     if "video_id" not in user_data.get(cid, {}):
@@ -507,21 +515,38 @@ def cb_reconfigurar(c):
 
 @bot.callback_query_handler(func=lambda c: c.data == "nuevo_video")
 def cb_nuevo(c):
+    registrar_actividad()
     cid = c.message.chat.id
     bot.answer_callback_query(c.id)
     user_data[cid] = {}
     bot.send_message(cid, "📤 Envía tu nuevo video:")
 
 
+# ── Registro de última actividad ──
+import time as _time
+last_activity = _time.time()
+
+def registrar_actividad():
+    global last_activity
+    last_activity = _time.time()
+
 def _keep_alive():
-    import urllib.request, time
-    url = "https://ofm-content-proceapprgit-frrkbhnqtafsx48eumratf.streamlit.app/"
+    """
+    Si pasan 5 minutos sin actividad (prueba), manda /start al dueño.
+    Si el mensaje falla (bot caído), deja de intentar.
+    """
+    INTERVALO   = 5 * 60        # 5 minutos (prueba, cambiar a 4*60*60 después)
+    OWNER_ID    = 6967043635    # Tu chat ID
+
     while True:
-        try:
-            urllib.request.urlopen(url, timeout=10)
-        except Exception:
-            pass
-        time.sleep(300)
+        _time.sleep(INTERVALO)
+        inactivo = _time.time() - last_activity
+        if inactivo >= INTERVALO:
+            try:
+                bot.send_message(OWNER_ID, "🔄 Auto keep-alive — bot activo")
+                registrar_actividad()
+            except Exception:
+                break
 
 threading.Thread(target=_keep_alive, daemon=True).start()
 
