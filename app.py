@@ -271,7 +271,7 @@ def cmd_start(m):
     registrar_actividad()
     user_data[m.chat.id] = {}
     bot.send_message(m.chat.id,
-        "👋 ¡Hola! Soy tu bot de reciclaje de contenido.\n\n📤 *Sube tu video* para empezar.",
+        "👋 Hola, soy tu bot de reciclaje de contenido.\n\n📤 Sube tu video para empezar.",
         parse_mode="Markdown")
 
 
@@ -522,7 +522,6 @@ def cb_nuevo(c):
     bot.send_message(cid, "📤 Envía tu nuevo video:")
 
 
-# ── Registro de última actividad ──
 import time as _time
 last_activity = _time.time()
 
@@ -531,20 +530,17 @@ def registrar_actividad():
     last_activity = _time.time()
 
 def _keep_alive():
-    """
-    Si pasan 5 minutos sin actividad (prueba), manda /start al dueño.
-    Si el mensaje falla (bot caído), deja de intentar.
-    """
-    INTERVALO   = 5 * 60        # 5 minutos (prueba, cambiar a 4*60*60 después)
-    OWNER_ID    = 6967043635    # Tu chat ID
+    """Si pasan 5 min sin actividad, manda /start simulando al usuario."""
+    INTERVALO = 5 * 60       # 5 minutos prueba, luego cambiar a 4*60*60
+    OWNER_ID  = 6967043635
 
+    _time.sleep(30)
     while True:
         _time.sleep(INTERVALO)
         inactivo = _time.time() - last_activity
         if inactivo >= INTERVALO:
             try:
-                bot.send_message(OWNER_ID, "🔄 Auto keep-alive — bot activo")
-                registrar_actividad()
+                bot.send_message(OWNER_ID, "/start")
             except Exception:
                 break
 
