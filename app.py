@@ -1,13 +1,14 @@
 import os, telebot, random, base64, io, threading
 import PIL.Image
 import numpy as np
-import streamlit as st
 from telebot import types
 from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip, ColorClip, concatenate_videoclips, vfx
 from moviepy.audio.fx.all import volumex
 from skimage.filters import gaussian
 
-TOKEN = st.secrets["TELEGRAM_TOKEN"]
+TOKEN = os.environ.get("TELEGRAM_TOKEN")
+if not TOKEN:
+    raise SystemExit("Falta la variable de entorno TELEGRAM_TOKEN")
 bot = telebot.TeleBot(TOKEN)
 user_data = {}
 
@@ -688,6 +689,10 @@ def cb_nuevo(c):
     bot.send_message(cid, "📤 " + ("Envía tu nuevo video:" if saved_lang == "es" else "Upload your new video:"))
 
 
-st.title("🤖 OFM Pro — Bot activo ✅")
-st.caption("El bot está corriendo.")
-bot.infinity_polling()
+print("Bot activo — escuchando mensajes de Telegram", flush=True)
+try:
+    bot.infinity_polling(timeout=30, long_polling_timeout=30)
+except KeyboardInterrupt:
+    # El workflow manda SIGINT a las 5.5 h para relanzar la siguiente corrida.
+    print("Corte programado: cerrando el bot", flush=True)
+    bot.stop_polling()

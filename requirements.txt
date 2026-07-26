@@ -1,6 +1,8 @@
 pyTelegramBotAPI
+# moviepy 1.0.3 usa PIL.Image.ANTIALIAS, que Pillow 10 eliminó → Pillow se queda en 9.x.
+# scikit-image nuevo exige Pillow>=10.1, por eso queda fijo en 0.22 (el último que
+# convive con Pillow 9 y numpy 1.x). Con estos pines el runner usa Python 3.11.
 moviepy==1.0.3
 Pillow==9.5.0
-streamlit
-numpy
-scikit-image
+numpy==1.26.4
+scikit-image==0.22.0
