@@ -1,0 +1,73 @@
+name: EfectoBot
+
+# El bot corre 5.5 horas por corrida (límite de GitHub: 6 h por job) y al
+# terminar se relanza solo → queda "siempre encendido" con huecos de ~1-2 min.
+# El cron cada 6 h es respaldo por si la cadena se corta (crash, mantenimiento).
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "43 */6 * * *"
+
+permissions:
+  actions: write
+
+# Nunca dos bots a la vez: Telegram da error 409 si hay dos polling del mismo
+# token. Una corrida nueva espera en cola a que termine la actual.
+concurrency:
+  group: efectobot
+  cancel-in-progress: false
+
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v5
+
+      # 3.11 y no 3.12: Pillow 9.5 (obligatorio para moviepy 1.0.3) no tiene
+      # wheels para 3.12 y compilarlo desde fuente falla en el runner.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Verificar secret del bot
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        run: |
+          if [ -z "$TELEGRAM_TOKEN" ]; then
+            echo "::error::Falta el secret TELEGRAM_TOKEN (Settings → Secrets and variables → Actions)"
+            exit 1
+          fi
+
+      - name: Instalar dependencias
+        run: |
+          # ffmpeg venía en packages.txt (apt de Streamlit Cloud); el runner de
+          # GitHub ya no lo trae y sin él moviepy no puede escribir los videos.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          pip install -U pip
+          pip install -r requirements.txt
+
+      - name: Sanity check de imports
+        run: python -c "import telebot, moviepy.editor, skimage, PIL; print('imports OK, Pillow', PIL.__version__)"
+
+      - name: Correr bot (5.5 horas)
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        run: |
+          START=$(date +%s)
+          EXIT=0
+          timeout --signal=SIGINT 19800 python app.py || EXIT=$?
+          ELAPSED=$(( $(date +%s) - START ))
+          echo "app.py terminó con código $EXIT tras ${ELAPSED}s"
+          # Si murió en menos de 5 min es un error de arranque: NO relanzar en
+          # cadena (evita un loop infinito de corridas); el cron lo reintentará.
+          if [ "$ELAPSED" -lt 300 ]; then
+            echo "::error::El bot murió a los ${ELAPSED}s — revisa los logs de arriba"
+            exit 1
+          fi
+
+      - name: Relanzar siguiente corrida
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run bot.yml --repo ${{ github.repository }}
