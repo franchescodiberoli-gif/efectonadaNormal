@@ -1,4 +1,4 @@
-import os, telebot, random, base64, io, threading
+import os, shutil, telebot, random, base64, io, threading
 import PIL.Image
 import numpy as np
 from telebot import types
@@ -9,6 +9,16 @@ from skimage.filters import gaussian
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 if not TOKEN:
     raise SystemExit("Falta la variable de entorno TELEGRAM_TOKEN")
+# Con la Bot API pública un bot solo puede BAJAR archivos de hasta 20 MB
+# ("file is too big"). Si el workflow levantó el servidor local de Telegram
+# (modo --local), el límite sube a 2 GB y los archivos quedan en disco.
+LOCAL_API = os.environ.get("TELEGRAM_LOCAL_API", "").rstrip("/")
+if LOCAL_API:
+    telebot.apihelper.API_URL  = LOCAL_API + "/bot{0}/{1}"
+    telebot.apihelper.FILE_URL = LOCAL_API + "/file/bot{0}/{1}"
+    telebot.apihelper.READ_TIMEOUT = 900   # subir un video grande tarda
+LIMITE_BAJADA = 2000 if LOCAL_API else 20  # MB
+
 bot = telebot.TeleBot(TOKEN)
 user_data = {}
 
@@ -50,6 +60,7 @@ TEXTS = {
         "done_reconfig":    "⚙️ Video {}/{}",
         "done_hyped":       "⚠️ ¡Hyped listo!",
         "error":            "❌ Error: {}",
+        "too_big":          "❌ El video pesa {} MB y el máximo es {} MB. Mándalo más liviano.",
         "video2":           "✅ Video 1 guardado.\n\n📤 Ahora sube el *segundo video*:",
         "cine_type":        "🎬 ¿Qué tipo de barras quieres?",
         "btn_negro":        "⬛ Negro",
@@ -82,6 +93,7 @@ TEXTS = {
         "done_reconfig":    "⚙️ Video {}/{}",
         "done_hyped":       "⚠️ Hyped ready!",
         "error":            "❌ Error: {}",
+        "too_big":          "❌ The video is {} MB and the limit is {} MB. Please send a smaller one.",
         "video2":           "✅ Video 1 saved.\n\n📤 Now upload the *second video*:",
         "cine_type":        "🎬 What type of bars do you want?",
         "btn_negro":        "⬛ Black",
@@ -417,6 +429,10 @@ def recibir_video(m):
         user_data.setdefault(cid, {})["lang"] = "es"
 
     file_id = m.video.file_id if m.content_type == "video" else m.document.file_id
+    file_size = (m.video if m.content_type == "video" else m.document).file_size or 0
+    if file_size > LIMITE_BAJADA * 1024 * 1024:
+        bot.send_message(cid, t(cid, "too_big").format(round(file_size / 1048576), LIMITE_BAJADA))
+        return
     estado  = user_data.get(cid, {})
 
     # Esperando video 2 para cliper
@@ -471,6 +487,17 @@ def respuesta_reconfigurar(m):
         threading.Thread(target=_hilo_reconfigurar, args=(cid, status.message_id), daemon=True).start()
 
 
+
+def bajar_video(file_id, destino):
+    info = bot.get_file(file_id)
+    # En modo --local, file_path es la ruta del archivo en el disco del servidor.
+    if LOCAL_API and os.path.isabs(info.file_path):
+        shutil.copyfile(info.file_path, destino)
+    else:
+        with open(destino, "wb") as f:
+            f.write(bot.download_file(info.file_path))
+
+
 # ─────────────────────────────────────────────────────
 #  HILOS
 # ─────────────────────────────────────────────────────
@@ -479,8 +506,7 @@ def _hilo_navidad(cid, status_id):
     in_p  = f"VIDEO/in_{cid}.mp4"
     out_p = f"US/navidad_{cid}.mp4"
     try:
-        raw = bot.download_file(bot.get_file(user_data[cid]["video_id"]).file_path)
-        with open(in_p, "wb") as f: f.write(raw)
+        bajar_video(user_data[cid]["video_id"], in_p)
         procesar_video(in_p, out_p)
         with open(out_p, "rb") as v:
             bot.send_video(cid, v, caption=t(cid, "done_navidad"), supports_streaming=True)
@@ -499,10 +525,8 @@ def _hilo_cliper(cid, status_id):
     in1, in2 = f"VIDEO/c1_{cid}.mp4", f"VIDEO/c2_{cid}.mp4"
     out_p    = f"US/cliper_{cid}.mp4"
     try:
-        raw1 = bot.download_file(bot.get_file(user_data[cid]["video_id"]).file_path)
-        with open(in1, "wb") as f: f.write(raw1)
-        raw2 = bot.download_file(bot.get_file(user_data[cid]["video2_id"]).file_path)
-        with open(in2, "wb") as f: f.write(raw2)
+        bajar_video(user_data[cid]["video_id"], in1)
+        bajar_video(user_data[cid]["video2_id"], in2)
         procesar_cliper(in1, in2, out_p)
         with open(out_p, "rb") as v:
             bot.send_video(cid, v, caption=t(cid, "done_cliper"), supports_streaming=True)
@@ -521,8 +545,7 @@ def _hilo_cine(cid, status_id, tipo):
     in_p  = f"VIDEO/in_{cid}.mp4"
     out_p = f"US/cine_{cid}.mp4"
     try:
-        raw = bot.download_file(bot.get_file(user_data[cid]["video_id"]).file_path)
-        with open(in_p, "wb") as f: f.write(raw)
+        bajar_video(user_data[cid]["video_id"], in_p)
         procesar_cine(in_p, out_p, tipo)
         with open(out_p, "rb") as v:
             bot.send_video(cid, v, caption=t(cid, "done_cine"), supports_streaming=True)
@@ -542,8 +565,7 @@ def _hilo_reconfigurar(cid, status_id):
     vidc  = cfg.get("vidc", 1)
     in_p  = f"VIDEO/in_{cid}.mp4"
     try:
-        raw = bot.download_file(bot.get_file(user_data[cid]["video_id"]).file_path)
-        with open(in_p, "wb") as f: f.write(raw)
+        bajar_video(user_data[cid]["video_id"], in_p)
 
         for i in range(vidc):
             out_p = f"US/reconfig_{cid}_{i}.mp4"
@@ -568,8 +590,7 @@ def _hilo_hyped(cid, status_id):
     in_p  = f"VIDEO/in_{cid}.mp4"
     out_p = f"US/hyped_{cid}.mp4"
     try:
-        raw = bot.download_file(bot.get_file(user_data[cid]["video_id"]).file_path)
-        with open(in_p, "wb") as f: f.write(raw)
+        bajar_video(user_data[cid]["video_id"], in_p)
         procesar_hyped(in_p, out_p)
         with open(out_p, "rb") as v:
             bot.send_video(cid, v, caption=t(cid, "done_hyped"), supports_streaming=True)

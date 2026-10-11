@@ -52,9 +52,46 @@ jobs:
       - name: Sanity check de imports
         run: python -c "import telebot, moviepy.editor, skimage, PIL; print('imports OK, Pillow', PIL.__version__)"
 
+      # Videos de más de 20 MB: la Bot API pública no deja que un bot los baje
+      # ("file is too big"). El servidor oficial de Telegram corriendo acá mismo
+      # en modo --local sube el límite a 2 GB. Necesita TELEGRAM_API_ID y
+      # TELEGRAM_API_HASH (my.telegram.org); sin ellos el bot sigue como antes.
+      # Corre con el usuario del runner para que el bot pueda leer los archivos.
+      - name: Servidor local de Telegram (videos de hasta 2 GB)
+        id: tgapi
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+        run: |
+          if [ -z "$TELEGRAM_API_ID" ] || [ -z "$TELEGRAM_API_HASH" ]; then
+            echo "::warning::Faltan TELEGRAM_API_ID / TELEGRAM_API_HASH: el bot sigue con el límite de 20 MB"
+            exit 0
+          fi
+          DIR=/var/lib/telegram-bot-api
+          sudo mkdir -p "$DIR" && sudo chown "$(id -u):$(id -g)" "$DIR"
+          docker run -d --name tgapi --network host --user "$(id -u):$(id -g)" \
+            -e TELEGRAM_API_ID -e TELEGRAM_API_HASH -v "$DIR:$DIR" \
+            --entrypoint telegram-bot-api aiogram/telegram-bot-api:10.2 \
+            --local --dir="$DIR" --temp-dir=/tmp --http-ip-address=127.0.0.1 --http-port=8081
+          for i in $(seq 1 30); do
+            if curl -s "http://127.0.0.1:8081/bot${TELEGRAM_TOKEN}/getMe" | grep -q '"ok":true'; then
+              # El bot tiene que salir del servidor público para recibir los
+              # mensajes por el local. Si ya salió antes, Telegram da error: no importa.
+              curl -s "https://api.telegram.org/bot${TELEGRAM_TOKEN}/logOut"; echo
+              echo "Servidor local listo"
+              echo "url=http://127.0.0.1:8081" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs tgapi 2>&1 | tail -40
+          echo "::warning::El servidor local no arrancó: el bot sigue con el límite de 20 MB"
+
       - name: Correr bot (5.5 horas)
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_LOCAL_API: ${{ steps.tgapi.outputs.url }}
         run: |
           START=$(date +%s)
           EXIT=0
